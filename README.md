@@ -214,4 +214,4 @@ Please cite our paper if you use the dataset in your work.
 We thank Yi Zhou and her collaborators for suggestions about human dense pose related operations.
 
 ## License
-This dataset is released under [Adobe Research License](https://github.com/adobe-research/EntitySeg-Dataset/blob/main/LICENSE.md). The license prohibits commercial use and allows for non-commercial research use.
+This project is released under [Adobe Research License](./LICENSE.md). The license prohibits commercial use and allows for non-commercial research use. The modeling code is partially built upon [ControlNet](https://github.com/lllyasviel/ControlNet), which is under [Apache-2.0 License](http://www.apache.org/licenses/LICENSE-2.0).
