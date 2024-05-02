@@ -1,4 +1,4 @@
-import gradio as gr
+
 import numpy as np
 from PIL import Image
 import os
@@ -9,30 +9,11 @@ import torchvision.transforms as T
 from utils import get_resize_params,get_transform,mask2bbox,_3dts2np,_pil2nts,_np2nts,add_dimension,set_seed
 import torch
 import math
-
+import argparse
+from tqdm import tqdm
 
 from mmpose_utils import tryon_cloth_warp
 from unihuman import UniHuman
-
-
-# Define cache paths
-cache_dir='./cache'
-cache_src_img_path=osp.join(cache_dir,'src_image.png')
-cache_src_mmpose_path=osp.join(cache_dir,'src_mmpose.json')
-cache_tgt_img_path=osp.join(cache_dir,'tgt_image.png')
-cache_cl_path=osp.join(cache_dir,'clothes.png')
-cache_cl_pose_path=osp.join(cache_dir,'clothes_mmpose.json')
-cache_cl_mask_path=osp.join(cache_dir,'clothes_mask.png')
-cache_parsing_path=osp.join(cache_dir,'src_parsing.png')
-cache_vis_parsing_path=osp.join(cache_dir,'src_vis_parsing.png')
-cache_src_pose_path=osp.join(cache_dir,'src_pose.png')
-cache_tgt_pose_path=osp.join(cache_dir,'tgt_pose.png')
-os.makedirs(cache_dir,exist_ok=True)
-# Clean cache when restarting the program
-for fname in os.listdir(cache_dir):
-    if osp.isfile(osp.join(cache_dir,fname)):
-        os.remove(osp.join(cache_dir,fname))
-
 
 
 # Define dino preprocessing 
@@ -50,14 +31,14 @@ def predict_parsing(img,parser):
     # accept pil image, return pil image
     parsing,vis=parser.predict_parsing(img)
     if np.sum(np.array(parsing))==0:
-        gr.Error('Failed to detect person in the image')
+        print('Warning: Failed to detect person in the image')
     return parsing,vis
 
 def predict_pose(img,pose_detector):
     # return pil image
     pose=pose_detector.predict_pose(img)
     if pose is None:
-        gr.Error('Failed to detect person in the image')
+        print('Warning: Failed to detect person in the image')
     return pose
 
 def predict_clothes_mmpose(img,mmpose_detector,clothes_cat='Upper Clothing'):
@@ -74,7 +55,7 @@ def predict_clothes_mask(img,parser):
     # return pil image ranging in [0,1]
     parsing,vis=parser.predict_clothes_parsing(img)
     if np.sum(np.array(parsing))==0:
-        gr.Warning('Failed to detect clothing item in the image')
+        print('Warning: Failed to detect clothing item in the image')
         parsing=Image.fromarray(np.ones_like(parsing))
     return parsing,vis
 
@@ -95,7 +76,7 @@ def get_pwarped_tex_for_to(person_img,parsing,target_pose,clothes,clothes_mask,s
     tgt_img,tgt_map=tryon_cloth_warp(person_img,parsing,target_pose,clothes,clothes_mask,cl_mmpose,src_mmpose,tryon_cat)
     
     if np.sum(tgt_map)==0:
-        gr.Warning('Failed to find matched keypoints between the clothes and the subject')
+        print('Warning: Failed to find matched keypoints between the clothes and the subject')
     
     return tgt_img,tgt_map
     
@@ -342,40 +323,20 @@ def process(task,seed,src_image,tgt_image,clothes,prompt,tryon_cat,edit_cat,ug_s
     
     # Sanity check
     if task=='Pose Transfer' and tgt_image is None:
-        raise gr.Error('Please upload a target image for pose trasnfer!')
+        raise Exception('Please upload a target image for pose trasnfer!')
 
     if task=='Virtual Try-on' and clothes is None:
-        raise gr.Error('Please upload a garment image for the virtual try-on task!')
+        raise Exception('Please upload a garment image for the virtual try-on task!')
 
     if task=='Text Editing' and len(prompt)==0:
-        raise gr.Error('Please give a prompt!')
+        raise Exception('Please give a prompt!')
     
     src_image = src_image.convert('RGB')
     
     ### Source image preprocessing begins. ### 
-    using_cached_example=False
-    if osp.exists(cache_src_img_path):
-        cache_src_img=Image.open(cache_src_img_path)
-        if cache_src_img.size==src_image.size and np.sum(np.array(cache_src_img)-np.array(src_image))<1:
-            try:
-                parsing=Image.open(cache_parsing_path)
-                vis_parsing=Image.open(cache_vis_parsing_path)
-                src_pose=Image.open(cache_src_pose_path)
-                src_mmpose=json.load(open(cache_src_mmpose_path))
-                using_cached_example=True               
-            except:
-                    gr.Warning('Can not open cached sourece files!')
-    if not using_cached_example:
-        parsing,vis_parsing=predict_parsing(src_image,model.parser)
-        src_pose=predict_pose(src_image,model.pose_detector)
-        src_mmpose=predict_person_mmpose(src_image,model.mmpose_detector)
-
-        # Save to cache
-        parsing.save(cache_parsing_path)
-        vis_parsing.save(cache_vis_parsing_path)
-        src_pose.save(cache_src_pose_path)
-        json.dump(src_mmpose,open(cache_src_mmpose_path,'w'))
-        src_image.save(cache_src_img_path)
+    parsing,vis_parsing=predict_parsing(src_image,model.parser)
+    src_pose=predict_pose(src_image,model.pose_detector)
+    
         
     src_param = get_resize_params(src_pose.size,intSize=res)
     src_img_trans_to_tensor = get_transform(src_param, normalize=True, toTensor=True,constant=255)
@@ -397,22 +358,7 @@ def process(task,seed,src_image,tgt_image,clothes,prompt,tryon_cat,edit_cat,ug_s
 
     ### Pose transfer data preprocessing begins. ### 
     if task=="Pose Transfer":
-        using_cached_example=False
-        if osp.exists(cache_tgt_img_path):
-            cache_tgt_img=Image.open(cache_tgt_img_path)
-            if cache_tgt_img.size==tgt_image.size and np.sum(np.array(cache_tgt_img)-np.array(tgt_image))<1:
-                try:
-                    tgt_pose=Image.open(cache_tgt_pose_path)
-                    using_cached_example=True                   
-                except:
-                    gr.Warning('Can not open cached target pose file %s'%cache_tgt_pose_path)
-
-        if not using_cached_example:
-            tgt_pose=predict_pose(tgt_image,model.pose_detector)
-
-            # Save to cache
-            tgt_pose.save(cache_tgt_pose_path)
-            tgt_image.save(cache_tgt_img_path)
+        tgt_pose=predict_pose(tgt_image,model.pose_detector)
 
         # prepare inputs to the model
         prompt=make_prompt(parsing)
@@ -439,27 +385,12 @@ def process(task,seed,src_image,tgt_image,clothes,prompt,tryon_cat,edit_cat,ug_s
     clothes_mask=None
     if task=="Virtual Try-on":
         clothes=clothes.convert('RGB')
-        using_cached_example=False
-        if osp.exists(cache_cl_path):
-            cache_clothes=Image.open(cache_cl_path)
-            if cache_clothes.size==clothes.size and np.sum(np.array(cache_clothes)-np.array(clothes))<1:
-                try:
-                    clothes_mmpose=json.load(open(cache_cl_pose_path))
-                    clothes_mask=Image.open(cache_cl_mask_path)
-                    using_cached_example=True                  
-                except:
-                    gr.Warning('Can not open cached garment file %s'%cache_cl_pose_path)
-
-        if not using_cached_example:
-                clothes_mmpose=predict_clothes_mmpose(clothes,model.mmpose_detector,clothes_cat=tryon_cat)
-                clothes_mask,_=predict_clothes_mask(clothes,model.parser)
-
-                # Save to cache
-                clothes_mask.save(cache_cl_mask_path)
-                json.dump(clothes_mmpose,open(cache_cl_pose_path,'w'))
-                clothes.save(cache_cl_path)
+        
+        clothes_mmpose=predict_clothes_mmpose(clothes,model.mmpose_detector,clothes_cat=tryon_cat)
+        clothes_mask,_=predict_clothes_mask(clothes,model.parser)
 
         # prepare inputs to the model
+        src_mmpose=predict_person_mmpose(src_image,model.mmpose_detector)
         prompt=make_prompt(parsing)
         tgt_pose=src_pose
         tgt_pose_ts=src_pose_ts
@@ -505,72 +436,120 @@ def process(task,seed,src_image,tgt_image,clothes,prompt,tryon_cat,edit_cat,ug_s
     batch=dict(src=src_image_ts.permute(1,2,0),txt=prompt, hint_pose=tgt_pose_ts,hint_tex=src_tex_ts,pwarped_tex=pwarped_tex_ts,seg=part_masks_ts,bg=bg_ts,human_area_mask=tgt_pose_mask_ts)
     batch=add_dimension(batch,0)
     
-    # if task=='Text Editing':
-    #     ug_scale=4
-    # else:
-    #     ug_scale=2
     
     results=model.edit_human(batch,ug_scale=ug_scale,task=task,ddim_steps=50)
     result=_3dts2np(results['samples_cfg'][0].cpu()).clip(0,255)
     result=composite_imgs(np.array(src_image_resized),result,bg_mask)
     
-    return [(_3dts2np(src_pose_ts),'Source Pose'),(_3dts2np(tgt_pose_ts),'Target Pose'),(vis_parsing,'Predicted Parsing'),(_3dts2np(pwarped_tex_img),'Pose Warped Texture'),(_3dts2np(bg_img_ts),'BG')], \
-           [(result,'Generated Image')]
-           #[((x+1)*127.5).permute(1,2,0).numpy().astype(np.uint8) for x in src_tex_ts*part_masks_ts[:,None]]
+    return result
 
 
-
-block=gr.Blocks().queue()
-with block:
-    with gr.Row():
-        gr.Markdown('## UniHuman')
-    with gr.Row():
-        with gr.Column(scale=1):
-            gr.Markdown('#### Source Info')
-            src_image = gr.Image(sources='upload', type="pil",label='Source Image',show_label=True,height=512)
-            task=gr.Radio(["Pose Transfer", "Virtual Try-on", "Text Editing"], label="Tasks", value='Pose Transfer')
-            seed = gr.Slider(label="Random Seed", minimum=0, maximum=23456, value=50, step=1)
-            ug_scale = gr.Slider(label="Guidance Strength", minimum=2, maximum=8, value=2, step=1)
-            task_btn = gr.Button("Confirm Task") 
-
-         
-        with gr.Column():
-            with gr.Row():
-                with gr.Column(visible=False) as pt_task:
-                     gr.Markdown('### Pose Transfer')
-                     tgt_image = gr.Image(sources='upload', type="pil",label='Target Image',show_label=True,height=512)
-                with gr.Column(visible=False) as vt_task:
-                    gr.Markdown('### Virtual Try-on')
-                    clothes = gr.Image(sources='upload', type="pil",label='Visual Prompt',show_label=True,height=512)
-                    tryon_cat= gr.Radio(choices=['Upper Clothing','Dress','Lower Clothing'],label='Garment Category',show_label=True,value='Upper Clothing')
-                with gr.Column(visible=False) as te_task:
-                    gr.Markdown('### Text Editing')
-                    prompt = gr.Textbox(label="Prompt") 
-                    edit_cat= gr.Radio(choices=['Upper Clothing','Dress','Lower Clothing'],label='Edit Category',show_label=True,value='Upper Clothing')
-            with gr.Row(visible=False) as submit_task:
-                  submit_btn = gr.Button("Submit") 
-
-            def show_task(task_name):
-                if task_name=='Pose Transfer':
-                    return {vt_task:gr.Column(visible=False),pt_task:gr.Column(visible=True),\
-                    te_task:gr.Column(visible=False),submit_task:gr.Row(visible=True)}
-                if task_name=='Virtual Try-on':
-                     return {vt_task:gr.Column(visible=True),pt_task:gr.Column(visible=False),\
-                     te_task:gr.Column(visible=False),submit_task:gr.Row(visible=True)}
-                if task_name=='Text Editing':
-                     return {vt_task:gr.Column(visible=False),pt_task:gr.Column(visible=False),\
-                     te_task:gr.Column(visible=True),submit_task:gr.Row(visible=True)}  
-
-        with gr.Column(min_width=256): 
-                gr.Markdown('### Final Result')  
-                result_gallery = gr.Gallery(label='output', show_label=False, columns=1,rows=1,height=512)  
-                
-                gr.Markdown('### Intermediate Output')   
-                data_gallery = gr.Gallery(label='model inputs', show_label=False, columns=2,rows=2,height=512)     
-                
+if __name__=='__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--src-img-list",     type=str,  default='')
+    parser.add_argument("--tgt-img-list",     type=str,  default='')
+    parser.add_argument("--tgt-clothes-list",     type=str,  default='')
+    parser.add_argument("--prompt-list",     type=str,  default='')
+    parser.add_argument("--task",     type=str,  default='')
+    parser.add_argument("--out-dir",     type=str,  default='./results')
+    parser.add_argument("--tryon-cat",     type=str,  default='upper')
+    parser.add_argument("--edit-cat",     type=str,  default='upper')
+    parser.add_argument("--seed",     type=int,  default=12345)
+    parser.add_argument("--cfg_scale",     type=int,  default=2)
+    opt = parser.parse_args()
     
-    task_btn.click(fn=show_task,inputs=[task],outputs=[pt_task,vt_task,te_task,submit_task])
-    submit_btn.click(fn=process, inputs=[task,seed,src_image,tgt_image,clothes,prompt,tryon_cat,edit_cat,ug_scale], outputs=[data_gallery,result_gallery])
+    if opt.task=='reposing':
+        src_img_paths=[]
+        with open(opt.src_img_list,'r') as src_file:
+            for line in src_file.readlines():
+                if osp.exists(line.strip()):
+                     src_img_paths.append(line.strip())
+                else:
+                     print('File %s not exists!'%line)
+          
+        tgt_img_paths=[]
+        with open(opt.tgt_img_list,'r') as tgt_file:
+            for line in tgt_file.readlines():
+                if osp.exists(line.strip()):
+                     tgt_img_paths.append(line.strip())
+                else:
+                     print('File %s not exists!'%line)
+                     
+        assert len(src_img_paths)>0 and len(tgt_img_paths)>0, print('Empty file list!')
+        assert len(src_img_paths)==len(tgt_img_paths), print('The number of source images should be equal to the number of target images!')
+        
 
-block.launch(server_name='0.0.0.0')
+        os.makedirs(opt.out_dir,exist_ok=True)
+        for src_path,tgt_path in tqdm(zip(src_img_paths,tgt_img_paths)):
+              src_image=Image.open(src_path)
+              tgt_image=Image.open(tgt_path)
+              out_name=src_path.split('/')[-1]+'_to_'+tgt_path.split('/')[-1]+'.png'
+              
+              result=process('Pose Transfer',opt.seed,src_image,tgt_image,clothes=None,prompt=None,tryon_cat=None,edit_cat=None,ug_scale=opt.cfg_scale)
+              
+              Image.fromarray(result).save(osp.join(opt.out_dir,out_name))
+              
+    elif opt.task=='tryon':
+        src_img_paths=[]
+        with open(opt.src_img_list,'r') as src_file:
+            for line in src_file.readlines():
+                if osp.exists(line.strip()):
+                     src_img_paths.append(line.strip())
+                else:
+                     print('File %s not exists!'%line)
+          
+        tgt_clothes_paths=[]
+        with open(opt.tgt_clothes_list,'r') as tgt_file:
+            for line in tgt_file.readlines():
+                if osp.exists(line.strip()):
+                     tgt_clothes_paths.append(line.strip())
+                else:
+                     print('File %s not exists!'%line)
+                     
+        assert len(src_img_paths)>0 and len(tgt_clothes_paths)>0, print('Empty file list!')
+        assert len(src_img_paths)==len(tgt_clothes_paths), print('The number of source images should be equal to the number of clothing images!')
+        
+        category_mapping={'upper':'Upper Clothing','dress':'Dress','lower':'Lower Clothing'}
+        
+        os.makedirs(opt.out_dir,exist_ok=True)
+        
+        for src_path,tgt_cpath in tqdm(zip(src_img_paths,tgt_clothes_paths)):
+              src_image=Image.open(src_path)
+              tgt_cloth_image=Image.open(tgt_cpath)
+              out_name=src_path.split('/')[-1]+'_to_'+tgt_cpath.split('/')[-1]+'.png'
+              
+              result=process('Virtual Try-on',opt.seed,src_image,tgt_image=None,clothes=tgt_cloth_image,prompt=None,tryon_cat=category_mapping[opt.tryon_cat],edit_cat=None,ug_scale=opt.cfg_scale)
+              
+              Image.fromarray(result).save(osp.join(opt.out_dir,out_name))
+              
+    elif opt.task=='text_edit':
+        src_img_paths=[]
+        with open(opt.src_img_list,'r') as src_file:
+            for line in src_file.readlines():
+                if osp.exists(line.strip()):
+                     src_img_paths.append(line.strip())
+                else:
+                     print('File %s not exists!'%line)
+          
+        prompt_list=[]
+        with open(opt.prompt_list,'r') as tgt_file:
+            for line in tgt_file.readlines():
+                prompt_list.append(line.strip())
+                     
+        assert len(src_img_paths)>0 and len(prompt_list)>0, print('Empty file list!')
+        assert len(src_img_paths)==len(prompt_list), print('The number of source images should be equal to the number of prompts!')
+        
+        category_mapping={'upper':'Upper Clothing','dress':'Dress','lower':'Lower Clothing'}
+        
+        os.makedirs(opt.out_dir,exist_ok=True)
+        
+        for src_path,prompt in tqdm(zip(src_img_paths,prompt_list)):
+              src_image=Image.open(src_path)
+              out_name=src_path.split('/')[-1]+'.png'
+              
+              result=process('Text Editing',opt.seed,src_image,tgt_image=None,clothes=None,prompt=prompt,tryon_cat=None,edit_cat=category_mapping[opt.edit_cat],ug_scale=opt.cfg_scale)
+              
+              Image.fromarray(result).save(osp.join(opt.out_dir,out_name))
+    else:
+        raise NotImplementedError
 

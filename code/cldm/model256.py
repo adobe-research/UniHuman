@@ -633,19 +633,22 @@ class ControlLDM(LatentDiffusion):
             un_seg=torch.zeros_like(seg) 
             
             if task=='Pose Transfer':
+                cond={"p_concat": [c_cat], "txt_crossattn": [c], "tex_crossattn": [c2],"seg":[seg],"human_area_mask":[human_area_mask]}
                 uc_full = {"p_concat": [torch.zeros_like(c_cat)], "txt_crossattn": [un_c], "tex_crossattn": [un_controlt],"seg":[un_seg],"human_area_mask":[torch.zeros_like(human_area_mask)]}
             elif task=='Virtual Try-on':
+                cond={"p_concat": [c_cat], "txt_crossattn": [c], "tex_crossattn": [c2],"seg":[seg],"human_area_mask":[human_area_mask]}
                 uc_full = {"p_concat": [torch.zeros_like(c_cat)], "txt_crossattn": [c], "tex_crossattn": [un_controlt],"seg":[un_seg],"human_area_mask":[torch.zeros_like(human_area_mask)]}
             else:
-                uc_full = {"p_concat": [c_cat], "txt_crossattn": [un_c], "tex_crossattn": [c2],"seg":[seg],"human_area_mask":[human_area_mask]}
+                cond={"p_concat": [c_cat], "txt_crossattn": [c], "tex_crossattn": [c2],"seg":[un_seg],"human_area_mask":[human_area_mask]}
+                uc_full = {"p_concat": [c_cat], "txt_crossattn": [un_c], "tex_crossattn": [c2],"seg":[un_seg],"human_area_mask":[human_area_mask]}
                 
-            samples_cfg, _ = self.sample_log(cond={"p_concat": [c_cat], "txt_crossattn": [c], "tex_crossattn": [c2],"seg":[seg],"human_area_mask":[human_area_mask]},
+            samples_cfg, _ = self.sample_log(cond=cond,
                                              batch_size=N, ddim=use_ddim,
                                              ddim_steps=ddim_steps, eta=ddim_eta,
                                              unconditional_guidance_scale=unconditional_guidance_scale,
                                              unconditional_conditioning=uc_full
                                              )
-            x_samples_cfg = self.decode_first_stage(samples_cfg)
+            x_samples_cfg = self.decode_first_stage(samples_cfg).clip(-1,1)
             
             log["samples_cfg"] = x_samples_cfg
         return log
