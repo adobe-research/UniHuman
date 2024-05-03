@@ -14,8 +14,10 @@ This license agreement (the “License”) between Adobe Inc., having a place of
 5.2	Any breach of any material provision of this License will automatically terminate the rights granted herein.<br/>
 5.3	Sections 2 (Ownership and Attribution), 3 (Disclaimer of Warranties), 4 (Limitation of Liability) will survive termination of this License.<br/>
 
+##
 
-**Apache License**
+**APACHE LICENSE**
+
 Version 2.0, January 2004
 http://www.apache.org/licenses/
 
