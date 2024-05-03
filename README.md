@@ -36,6 +36,7 @@ cd ..
 # Install human parser
 cd code
 git clone https://github.com/Gaoyiminggithub/Graphonomy.git
+cd ..
 ```
 
 After installing the above packages, your  directory structure should look like
@@ -175,25 +176,34 @@ It's suggested that your source and target image resolutions are at least 512 be
 
 ## <h2 id="model-inf">Section 5: Model Inference</h2>
 
-We provide the model inference script `infer.py` for you to edit the input images in a folder. To use the script, please follow step 1 and 2 in [Section 4: Gradio Demo](#gradio-demo) to prepare the pretrained models.
+We provide the model inference script `code/infer.py` for you to edit the input images in a folder. To use the script, please follow step 1 and 2 in [Section 4: Gradio Demo](#gradio-demo) to prepare the pretrained models.
 
 1) Pose Transfer
    
    Put the file paths to source images in `source_img_paths.txt` and the paths to target images in `tgt_img_paths.txt`. Then run
 
-   `python infer.py  --task reposing --src-img-list source_img_paths.txt --tgt-img-list tgt_img_paths.txt  --out-dir ./results`
+   ```
+   cd code
+   python infer.py  --task reposing --src-img-list source_img_paths.txt --tgt-img-list tgt_img_paths.txt  --out-dir ./results
+   ```
 
-2) Virtual Try-on
+3) Virtual Try-on
 
     Put the file paths to source images in `source_img_paths.txt` and the paths to garment images in `clothes_list.txt`. Make sure the try-on garments belong to the same category (i.e., upper clothing, lower clothing or dress). Then run
 
-    `python infer.py  --task tryon --src-img-list source_img_paths.txt --tgt-clothes-list clothes_list.txt --tryon-cat [upper/lower/dress] --out-dir ./results`
+   ```
+   cd code
+   python infer.py  --task tryon --src-img-list source_img_paths.txt --tgt-clothes-list clothes_list.txt --tryon-cat [upper/lower/dress] --out-dir ./results
+   ```
 
-3) Text Edit
+4) Text Edit
    
    Put the file paths to source images in `source_img_paths.txt` and the text prompts in `prompt_list.txt`. Make sure the garments you want to edit belong to the same category (i.e., upper clothing, lower clothing or dress). Then run
 
-   `python infer.py  --task text_edit --src-img-list source_img_paths.txt --prompt-list prompt_list.txt --edit-cat [upper/lower/dress] --out-dir ./results --cfg_scale 4 `
+   ```
+   cd code
+   python infer.py  --task text_edit --src-img-list source_img_paths.txt --prompt-list prompt_list.txt --edit-cat [upper/lower/dress] --out-dir ./results --cfg_scale 4
+   ```
 
     To get the best results, you may want to try different values of `--cfg_scale`, which usually ranges from 1 to 10.
 
